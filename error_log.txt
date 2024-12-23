@@ -1,0 +1,5 @@
+[2024-12-23 17:50:29] No results from MusicBrainz for コインロッカーベイビー by Unknown
+[2024-12-23 17:50:34] No results from MusicBrainz for いみごのたまご by Unknown
+[2024-12-23 17:55:13] No results from MusicBrainz for Hello by Unknown
+[2024-12-23 17:55:22] Failed to download audio for https://music.youtube.com/watch?v=SOP8opBgvAY: [0;31mERROR:[0m 'Downloader/secret/youtube_cookies.txt' does not look like a Netscape format cookies file
+[2024-12-23 17:55:22] Failed to process song Trauma Team (2020 Version) from URL https://music.youtube.com/watch?v=SOP8opBgvAY: [0;31mERROR:[0m 'Downloader/secret/youtube_cookies.txt' does not look like a Netscape format cookies file

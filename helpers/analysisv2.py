@@ -14,17 +14,20 @@ TEMP_AUDIO_DIR = "temp_audio"  # dir to store temporary audio files in
 OUTPUT_FILE = "output.parquet"
 ERROR_LOG_FILE = "error_log.txt"
 MAX_WORKERS = 6
+DOWNLOAD_LONG = False  # Set to True to allow downloading songs over 15 minutes
 
 # Ensure temporary directory exists
 os.makedirs(TEMP_AUDIO_DIR, exist_ok=True)
+
 
 # Function to log errors
 def log_error(message: str):
     with open(ERROR_LOG_FILE, "a") as log_file:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_file.write(f"[{timestamp}] {message}\n")
+        
 
-def get_youtube_music_title(url: str) -> str:
+def get_youtube_music_info(url: str):
     try:
         ydl_opts = {
             'quiet': True,
@@ -33,10 +36,14 @@ def get_youtube_music_title(url: str) -> str:
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            return info.get('title', 'No title found')
+            return {
+                'title': info.get('title', 'No title found'),
+                'duration': info.get('duration', 0),  # duration in seconds
+            }
     except Exception as e:
-        log_error(f"Failed to retrieve title for URL {url}: {e}")
-        return "Unknown Title"
+        log_error(f"Failed to retrieve info for URL {url}: {e}")
+        return {'title': 'Unknown Title', 'duration': 0}
+    
 
 def download_audio(video_url, output_path, cookies_path):
     try:
@@ -54,6 +61,7 @@ def download_audio(video_url, output_path, cookies_path):
     except Exception as e:
         log_error(f"Failed to download audio for {video_url}: {e}")
         raise
+    
 
 def extract_audio_features(audio_path):
     try:
@@ -69,6 +77,7 @@ def extract_audio_features(audio_path):
     except Exception as e:
         log_error(f"Failed to extract features from {audio_path}: {e}")
         raise
+
 
 def fetch_metadata(title, artist="Unknown"):
     try:
@@ -91,8 +100,20 @@ def fetch_metadata(title, artist="Unknown"):
         log_error(f"Failed to fetch metadata for {title}: {e}")
     return {"title": title, "artist": artist, "release_date": None, "genres": []}
 
+
 def process_song(video_url):
-    title = get_youtube_music_title(video_url)
+    info = get_youtube_music_info(video_url)
+    title = info['title']
+    duration = info['duration']  # duration in seconds
+
+    # Check if the song exceeds the allowed length
+    if not DOWNLOAD_LONG and duration > 15 * 60:
+        print(f"Skipping {title} (Duration: {duration / 60:.2f} minutes) as it exceeds 15 minutes.")
+        log_error(f"Skipped {title} (Duration: {duration / 60:.2f} minutes) - too long.")
+        with open(ERROR_LOG_FILE, "a") as log_file:
+            log_file.write(f"{video_url},")
+        return None
+
     audio_path = os.path.join(TEMP_AUDIO_DIR, f"{title.replace(' ', '_')}.wav")
     try:
         download_audio(video_url, audio_path.replace(".wav", ""), COOKIES_PATH)
@@ -113,6 +134,7 @@ def process_song(video_url):
         if os.path.exists(audio_path):
             os.remove(audio_path)
 
+
 def read_urls_from_json(data_dir):
     urls = []
     for filename in os.listdir(data_dir):
@@ -128,6 +150,7 @@ def read_urls_from_json(data_dir):
             except json.JSONDecodeError as e:
                 log_error(f"Failed to read JSON file {file_path}: {e}")
     return [url for url in urls if url]
+
 
 if __name__ == "__main__":
     try:
