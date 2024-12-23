@@ -28,6 +28,7 @@ six==1.17.0
 soundfile==0.12.1
 soxr==0.5.0.post1
 threadpoolctl==3.5.0
+tqdm==4.67.1
 typing_extensions==4.12.2
 tzdata==2024.2
 urllib3==2.3.0
