@@ -7,3 +7,4 @@ temp_audio/
 .env
 temp.*
 *.parquet
+err.log

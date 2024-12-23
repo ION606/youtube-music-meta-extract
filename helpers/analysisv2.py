@@ -1,5 +1,6 @@
 import yt_dlp
 import librosa
+from librosa.feature.rhythm import tempo
 import numpy as np
 import os
 import json
@@ -7,13 +8,26 @@ import requests
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from tqdm import tqdm
+
+
+class NoOpLogger:
+    def debug(self, msg):
+        pass
+
+    def warning(self, msg):
+        pass
+
+    def error(self, msg):
+        pass
+
 
 # Constants
 COOKIES_PATH = "Downloader/secret/youtube_cookies.txt"
 TEMP_AUDIO_DIR = "temp_audio"  # dir to store temporary audio files in
 OUTPUT_FILE = "output.parquet"
-ERROR_LOG_FILE = "error_log.txt"
-MAX_WORKERS = 6
+ERROR_LOG_FILE = "err.log"
+MAX_WORKERS = 10
 DOWNLOAD_LONG = False  # Set to True to allow downloading songs over 15 minutes
 
 # Ensure temporary directory exists
@@ -25,7 +39,7 @@ def log_error(message: str):
     with open(ERROR_LOG_FILE, "a") as log_file:
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         log_file.write(f"[{timestamp}] {message}\n")
-        
+
 
 def get_youtube_music_info(url: str):
     try:
@@ -33,6 +47,7 @@ def get_youtube_music_info(url: str):
             'quiet': True,
             'no_warnings': True,
             'skip_download': True,
+            'logger': NoOpLogger(),  # Suppress all yt_dlp logs
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -43,7 +58,7 @@ def get_youtube_music_info(url: str):
     except Exception as e:
         log_error(f"Failed to retrieve info for URL {url}: {e}")
         return {'title': 'Unknown Title', 'duration': 0}
-    
+
 
 def download_audio(video_url, output_path, cookies_path):
     try:
@@ -54,25 +69,25 @@ def download_audio(video_url, output_path, cookies_path):
                 {"key": "FFmpegExtractAudio", "preferredcodec": "wav"}
             ],
             "outtmpl": output_path,
+            "logger": NoOpLogger(),  # Suppress all yt_dlp logs
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([video_url])
-        print(f"Downloaded and converted audio to {output_path}")
     except Exception as e:
         log_error(f"Failed to download audio for {video_url}: {e}")
         raise
-    
+
+
 
 def extract_audio_features(audio_path):
     try:
         y, sr = librosa.load(audio_path, sr=None)
         features = {
-            "tempo": librosa.beat.tempo(y=y, sr=sr)[0],
+            "tempo": tempo(y=y, sr=sr)[0],
             "mfcc": np.mean(librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13).T, axis=0),
             "spectral_contrast": np.mean(librosa.feature.spectral_contrast(y=y, sr=sr).T, axis=0),
             "chroma_stft": np.mean(librosa.feature.chroma_stft(y=y, sr=sr).T, axis=0),
         }
-        print("Extracted audio features:", features)
         return features
     except Exception as e:
         log_error(f"Failed to extract features from {audio_path}: {e}")
@@ -93,7 +108,6 @@ def fetch_metadata(title, artist="Unknown"):
                     "release_date": results[0].get("first-release-date"),
                     "genres": results[0].get("tags", []),
                 }
-                print("Fetched metadata from MusicBrainz:", metadata)
                 return metadata
         log_error(f"No results from MusicBrainz for {title} by {artist}")
     except Exception as e:
@@ -108,7 +122,6 @@ def process_song(video_url):
 
     # Check if the song exceeds the allowed length
     if not DOWNLOAD_LONG and duration > 15 * 60:
-        print(f"Skipping {title} (Duration: {duration / 60:.2f} minutes) as it exceeds 15 minutes.")
         log_error(f"Skipped {title} (Duration: {duration / 60:.2f} minutes) - too long.")
         with open(ERROR_LOG_FILE, "a") as log_file:
             log_file.write(f"{video_url},")
@@ -156,14 +169,16 @@ if __name__ == "__main__":
     try:
         songs = read_urls_from_json('data')
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-            results = list(executor.map(process_song, songs))
+            with tqdm(total=len(songs), desc="Processing songs", unit="song") as pbar:
+                results = []
+                for result in executor.map(process_song, songs):
+                    results.append(result)
+                    pbar.update(1)
         processed_data = [result for result in results if result is not None]
         df = pd.DataFrame(processed_data)
         df.to_parquet(OUTPUT_FILE, engine="pyarrow", index=False)
-        print(f"Data saved to {OUTPUT_FILE}")
     except Exception as e:
         log_error(f"Pipeline failed: {e}")
     finally:
         if os.path.exists(TEMP_AUDIO_DIR):
             os.rmdir(TEMP_AUDIO_DIR)
-        print("Pipeline complete.")
