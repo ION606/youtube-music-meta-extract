@@ -1,0 +1,9 @@
+node_modules/
+.venv/
+secret/
+data/
+bdata/
+temp_audio/
+.env
+temp.*
+*.parquet
